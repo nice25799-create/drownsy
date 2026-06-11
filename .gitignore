@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+
+# 95 MB dlib model - re-download instead of versioning
+# http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2
+shape_predictor_68_face_landmarks.dat
+
+# local Claude Code permissions
+.claude/settings.local.json

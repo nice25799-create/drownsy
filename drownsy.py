@@ -1,0 +1,337 @@
+import cv2
+import dlib
+import imutils
+from scipy.spatial import distance as dist
+from imutils import face_utils
+import time
+import os
+import threading
+from collections import deque
+
+import anthropic
+
+try:
+    import pyttsx3
+    _TTS_AVAILABLE = True
+except ImportError:
+    _TTS_AVAILABLE = False
+
+# -------------------- CONFIGURATION --------------------
+EYE_AR_THRESH = 0.25          # EAR below this → eye considered closed
+EYE_AR_CONSEC_FRAMES = 20     # Consecutive frames below threshold to trigger alert
+
+MOUTH_AR_THRESH = 0.5         # MAR above this → mouth wide open (yawning)
+MOUTH_AR_CONSEC_FRAMES = 15   # ~0.5 s at 30 fps; filters out talking/laughing
+YAWN_WINDOW_SEC = 60.0        # rolling window for yawn frequency
+YAWN_ALERT_COUNT = 3          # yawns within the window to trigger an alert
+
+CLAUDE_MODEL = "claude-opus-4-7"  # swap to "claude-haiku-4-5" for faster/cheaper alerts
+ALERT_COOLDOWN = 6.0              # min seconds between spoken alerts
+# -------------------------------------------------------
+
+def eye_aspect_ratio(eye):
+    """Compute the Eye Aspect Ratio (EAR) for a single eye."""
+    A = dist.euclidean(eye[1], eye[5])
+    B = dist.euclidean(eye[2], eye[4])
+    C = dist.euclidean(eye[0], eye[3])
+
+    return (A + B) / (2.0 * C)
+
+def mouth_aspect_ratio(mouth):
+    """Compute the Mouth Aspect Ratio (MAR) from the 8 inner-lip landmarks."""
+    A = dist.euclidean(mouth[1], mouth[7])
+    B = dist.euclidean(mouth[2], mouth[6])
+    C = dist.euclidean(mouth[3], mouth[5])
+    D = dist.euclidean(mouth[0], mouth[4])
+
+    return (A + B + C) / (2.0 * D)
+
+def generate_alert_message(client, episode_count, reason):
+    """Ask Claude for a short, context-aware wake-up line. Falls back on failure."""
+    fallback = "Wake up! You are showing signs of drowsiness."
+
+    if client is None:
+        return fallback
+
+    try:
+        resp = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=60,
+            system=(
+                "You generate ONE very short spoken wake-up line for a drowsy "
+                "driver-alert system. Max 12 words, urgent but calm, and vary the "
+                "wording each time. Output only the sentence: no quotes, no emojis, "
+                "no preamble."
+            ),
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Drowsiness detected. This is alert #{episode_count} this "
+                    f"session. {reason} Give the wake-up line."
+                ),
+            }],
+        )
+        return resp.content[0].text.strip()
+    except Exception as e:
+        print(f"[WARN] Claude alert generation failed: {e}")
+        return fallback
+
+def speak(text):
+    """Print and (if available) speak the alert message aloud."""
+    print(f"[ALERT] {text}")
+
+    if not _TTS_AVAILABLE:
+        return
+
+    try:
+        engine = pyttsx3.init()
+        engine.say(text)
+        engine.runAndWait()
+        engine.stop()
+    except Exception as e:
+        print(f"[WARN] Text-to-speech failed: {e}")
+
+def handle_alert(client, episode_count, reason, busy_flag):
+    """Background worker: generate the message, then speak it."""
+    try:
+        message = generate_alert_message(client, episode_count, reason)
+        speak(message)
+    finally:
+        busy_flag.clear()   # allow the next alert
+
+def main():
+    print("[INFO] Loading facial landmark predictor...")
+
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        "shape_predictor_68_face_landmarks.dat"
+    )
+
+    (lStart, lEnd) = face_utils.FACIAL_LANDMARKS_IDXS["left_eye"]
+    (rStart, rEnd) = face_utils.FACIAL_LANDMARKS_IDXS["right_eye"]
+    (mStart, mEnd) = (60, 68)   # inner-lip landmarks (dlib points 61-68)
+
+    # Claude client — reads ANTHROPIC_API_KEY from the environment.
+    try:
+        client = anthropic.Anthropic()
+    except Exception as e:
+        print(f"[WARN] Claude client unavailable ({e}); using fallback alerts.")
+        client = None
+
+    print("[INFO] Starting video stream...")
+
+    vs = cv2.VideoCapture(0)   # 0 = default webcam
+    time.sleep(2.0)            # let camera warm up
+
+    COUNTER = 0
+    ALARM_ON = False
+
+    MOUTH_COUNTER = 0
+    yawn_counted = False        # current mouth-open episode already counted
+    yawn_times = deque()        # timestamps of recent yawns
+
+    drowsy_start = 0.0           # when the current eye-closure began
+    episode_count = 0           # how many alerts this session
+    last_alert_time = 0.0       # for the cooldown
+    alert_busy = threading.Event()   # set while an alert thread is running
+
+    while True:
+        ret, frame = vs.read()
+
+        if not ret:
+            print("[ERROR] Failed to read frame from webcam.")
+            break
+
+        # Resize for speed
+        frame = imutils.resize(frame, width=450)
+
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Detect faces
+        rects = detector(gray, 0)
+
+        for rect in rects:
+            # Facial landmarks
+            shape = predictor(gray, rect)
+            shape = face_utils.shape_to_np(shape)
+
+            # Extract eye coordinates
+            leftEye = shape[lStart:lEnd]
+            rightEye = shape[rStart:rEnd]
+
+            # Compute EAR
+            leftEAR = eye_aspect_ratio(leftEye)
+            rightEAR = eye_aspect_ratio(rightEye)
+
+            ear = (leftEAR + rightEAR) / 2.0
+
+            # Draw contours
+            leftEyeHull = cv2.convexHull(leftEye)
+            rightEyeHull = cv2.convexHull(rightEye)
+
+            cv2.drawContours(
+                frame,
+                [leftEyeHull],
+                -1,
+                (0, 255, 0),
+                1
+            )
+
+            cv2.drawContours(
+                frame,
+                [rightEyeHull],
+                -1,
+                (0, 255, 0),
+                1
+            )
+
+            # Extract inner-lip coordinates and compute MAR
+            mouth = shape[mStart:mEnd]
+            mar = mouth_aspect_ratio(mouth)
+
+            mouthHull = cv2.convexHull(mouth)
+
+            cv2.drawContours(
+                frame,
+                [mouthHull],
+                -1,
+                (0, 255, 255),
+                1
+            )
+
+            # Yawn detection: mouth wide open for enough consecutive frames
+            if mar > MOUTH_AR_THRESH:
+                MOUTH_COUNTER += 1
+
+                if MOUTH_COUNTER >= MOUTH_AR_CONSEC_FRAMES:
+                    # Count each open-mouth episode as one yawn
+                    if not yawn_counted:
+                        yawn_counted = True
+                        yawn_times.append(time.time())
+
+                    cv2.putText(
+                        frame,
+                        "YAWNING",
+                        (10, 80),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 255, 255),
+                        2
+                    )
+            else:
+                MOUTH_COUNTER = 0
+                yawn_counted = False
+
+            # Drop yawns that fell out of the rolling window
+            now = time.time()
+
+            while yawn_times and (now - yawn_times[0]) > YAWN_WINDOW_SEC:
+                yawn_times.popleft()
+
+            # Too many yawns in the window → spoken alert
+            if (len(yawn_times) >= YAWN_ALERT_COUNT
+                    and not alert_busy.is_set()
+                    and (now - last_alert_time) > ALERT_COOLDOWN):
+                last_alert_time = now
+                episode_count += 1
+                reason = (f"Driver yawned {len(yawn_times)} times within "
+                          "the last minute.")
+                yawn_times.clear()   # start a fresh window after alerting
+
+                alert_busy.set()
+                threading.Thread(
+                    target=handle_alert,
+                    args=(client, episode_count, reason, alert_busy),
+                    daemon=True,
+                ).start()
+
+            # Drowsiness detection
+            if ear < EYE_AR_THRESH:
+                if COUNTER == 0:
+                    drowsy_start = time.time()   # episode begins
+
+                COUNTER += 1
+
+                if COUNTER >= EYE_AR_CONSEC_FRAMES:
+                    cv2.putText(
+                        frame,
+                        "DROWSINESS ALERT!",
+                        (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 0, 255),
+                        2
+                    )
+
+                    now = time.time()
+
+                    # Fire one spoken alert per episode, respecting the cooldown,
+                    # and only if no alert is already being spoken.
+                    if (not ALARM_ON
+                            and not alert_busy.is_set()
+                            and (now - last_alert_time) > ALERT_COOLDOWN):
+                        ALARM_ON = True
+                        last_alert_time = now
+                        episode_count += 1
+                        duration = now - drowsy_start
+                        reason = (f"Eyes were closed for about "
+                                  f"{duration:.0f} seconds.")
+
+                        alert_busy.set()
+                        threading.Thread(
+                            target=handle_alert,
+                            args=(client, episode_count, reason, alert_busy),
+                            daemon=True,
+                        ).start()
+
+            else:
+                COUNTER = 0
+                ALARM_ON = False
+
+            # Display EAR / MAR values and yawn count
+            cv2.putText(
+                frame,
+                f"EAR: {ear:.2f}",
+                (300, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 0, 255),
+                2
+            )
+
+            cv2.putText(
+                frame,
+                f"MAR: {mar:.2f}",
+                (300, 55),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 0, 255),
+                2
+            )
+
+            cv2.putText(
+                frame,
+                f"Yawns(60s): {len(yawn_times)}",
+                (10, 55),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 255),
+                2
+            )
+
+        # Show frame
+        cv2.imshow("Frame", frame)
+
+        # Press q to quit
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+    # Cleanup
+    print("[INFO] Releasing resources...")
+
+    vs.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    main()
