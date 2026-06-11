@@ -18,10 +18,10 @@ except ImportError:
     _TTS_AVAILABLE = False
 
 # -------------------- CONFIGURATION --------------------
-EYE_AR_CONSEC_FRAMES = 20     # Consecutive frames below threshold to trigger alert
+EYE_CLOSED_ALERT_SEC = 1.0    # continuous eye closure that fires the alert
 
 MOUTH_AR_THRESH = 0.5         # MAR above this → mouth wide open (yawning)
-MOUTH_AR_CONSEC_FRAMES = 15   # ~0.5 s at 30 fps; filters out talking/laughing
+MOUTH_OPEN_YAWN_SEC = 0.5     # continuous open mouth that counts as one yawn
 
 CALIB_SECONDS = 10.0          # startup calibration capture duration
 CALIB_RATIO = 0.75            # threshold = ratio x median open-eye EAR
@@ -265,14 +265,12 @@ def main():
 
     ear_thresh, ear_thresh_is_default = calib
 
-    COUNTER = 0
+    closure_start = None        # when the current eye-closure began
     ALARM_ON = False
 
-    MOUTH_COUNTER = 0
+    mouth_open_start = None     # when the current mouth-open episode began
     yawn_counted = False        # current mouth-open episode already counted
     yawn_times = deque()        # timestamps of recent yawns
-
-    drowsy_start = 0.0           # when the current eye-closure began
     episode_count = 0           # how many alerts this session
     last_alert_time = 0.0       # for the cooldown
     alert_busy = threading.Event()   # set while an alert thread is running
@@ -342,15 +340,18 @@ def main():
                 1
             )
 
-            # Yawn detection: mouth wide open for enough consecutive frames
-            if mar > MOUTH_AR_THRESH:
-                MOUTH_COUNTER += 1
+            # Yawn detection: mouth wide open for enough consecutive time
+            now = time.time()
 
-                if MOUTH_COUNTER >= MOUTH_AR_CONSEC_FRAMES:
+            if mar > MOUTH_AR_THRESH:
+                if mouth_open_start is None:
+                    mouth_open_start = now
+
+                if (now - mouth_open_start) >= MOUTH_OPEN_YAWN_SEC:
                     # Count each open-mouth episode as one yawn
                     if not yawn_counted:
                         yawn_counted = True
-                        yawn_times.append(time.time())
+                        yawn_times.append(now)
 
                     cv2.putText(
                         frame,
@@ -362,12 +363,10 @@ def main():
                         2
                     )
             else:
-                MOUTH_COUNTER = 0
+                mouth_open_start = None
                 yawn_counted = False
 
             # Drop yawns that fell out of the rolling window
-            now = time.time()
-
             while yawn_times and (now - yawn_times[0]) > YAWN_WINDOW_SEC:
                 yawn_times.popleft()
 
@@ -390,12 +389,12 @@ def main():
 
             # Drowsiness detection
             if ear < ear_thresh:
-                if COUNTER == 0:
-                    drowsy_start = time.time()   # episode begins
+                if closure_start is None:
+                    closure_start = now   # episode begins
 
-                COUNTER += 1
+                closed_dur = now - closure_start
 
-                if COUNTER >= EYE_AR_CONSEC_FRAMES:
+                if closed_dur >= EYE_CLOSED_ALERT_SEC:
                     cv2.putText(
                         frame,
                         "DROWSINESS ALERT!",
@@ -406,8 +405,6 @@ def main():
                         2
                     )
 
-                    now = time.time()
-
                     # Fire one spoken alert per episode, respecting the cooldown,
                     # and only if no alert is already being spoken.
                     if (not ALARM_ON
@@ -416,9 +413,8 @@ def main():
                         ALARM_ON = True
                         last_alert_time = now
                         episode_count += 1
-                        duration = now - drowsy_start
                         reason = (f"Eyes were closed for about "
-                                  f"{duration:.0f} seconds.")
+                                  f"{closed_dur:.0f} seconds.")
 
                         alert_busy.set()
                         threading.Thread(
@@ -428,7 +424,7 @@ def main():
                         ).start()
 
             else:
-                COUNTER = 0
+                closure_start = None
                 ALARM_ON = False
 
             # Display EAR / MAR values and yawn count
