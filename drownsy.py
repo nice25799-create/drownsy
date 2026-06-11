@@ -18,7 +18,6 @@ except ImportError:
     _TTS_AVAILABLE = False
 
 # -------------------- CONFIGURATION --------------------
-EYE_AR_THRESH = 0.25          # EAR below this → eye considered closed
 EYE_AR_CONSEC_FRAMES = 20     # Consecutive frames below threshold to trigger alert
 
 MOUTH_AR_THRESH = 0.5         # MAR above this → mouth wide open (yawning)
@@ -101,6 +100,82 @@ class PerclosTracker:
         self.samples.clear()
 
 
+def calibrate_ear(vs, detector, predictor, l_idx, r_idx):
+    """Collect open-eye EAR samples for CALIB_SECONDS, then derive a threshold.
+
+    Returns (threshold, used_default), or None if the user pressed q.
+    """
+    (lStart, lEnd) = l_idx
+    (rStart, rEnd) = r_idx
+
+    samples = []
+    start = time.time()
+
+    while True:
+        remaining = CALIB_SECONDS - (time.time() - start)
+
+        if remaining <= 0:
+            break
+
+        ret, frame = vs.read()
+
+        if not ret:
+            print("[ERROR] Failed to read frame during calibration.")
+            break
+
+        frame = imutils.resize(frame, width=450)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        rects = detector(gray, 0)
+
+        ear = None
+
+        if rects:
+            shape = predictor(gray, rects[0])
+            shape = face_utils.shape_to_np(shape)
+
+            leftEAR = eye_aspect_ratio(shape[lStart:lEnd])
+            rightEAR = eye_aspect_ratio(shape[rStart:rEnd])
+            ear = (leftEAR + rightEAR) / 2.0
+            samples.append(ear)
+
+        cv2.putText(
+            frame,
+            f"CALIBRATING - look at camera, eyes open ({remaining:.0f}s)",
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (255, 200, 0),
+            2
+        )
+
+        if ear is not None:
+            cv2.putText(
+                frame,
+                f"EAR: {ear:.2f}",
+                (10, 55),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 200, 0),
+                2
+            )
+
+        cv2.imshow("Frame", frame)
+
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            return None
+
+    threshold, used_default = derive_threshold(samples)
+
+    if used_default:
+        print(f"[WARN] Calibration failed ({len(samples)} samples); "
+              f"using default EAR threshold {threshold:.2f}.")
+    else:
+        print(f"[INFO] Calibrated EAR threshold: {threshold:.3f} "
+              f"(from {len(samples)} samples)")
+
+    return threshold, used_default
+
+
 def generate_alert_message(client, episode_count, reason):
     """Ask Claude for a short, context-aware wake-up line. Falls back on failure."""
     fallback = "Wake up! You are showing signs of drowsiness."
@@ -177,6 +252,18 @@ def main():
 
     vs = cv2.VideoCapture(0)   # 0 = default webcam
     time.sleep(2.0)            # let camera warm up
+
+    calib = calibrate_ear(
+        vs, detector, predictor, (lStart, lEnd), (rStart, rEnd)
+    )
+
+    if calib is None:
+        print("[INFO] Calibration aborted; exiting.")
+        vs.release()
+        cv2.destroyAllWindows()
+        return
+
+    ear_thresh, ear_thresh_is_default = calib
 
     COUNTER = 0
     ALARM_ON = False
@@ -302,7 +389,7 @@ def main():
                 ).start()
 
             # Drowsiness detection
-            if ear < EYE_AR_THRESH:
+            if ear < ear_thresh:
                 if COUNTER == 0:
                     drowsy_start = time.time()   # episode begins
 
