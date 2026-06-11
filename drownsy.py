@@ -31,6 +31,9 @@ CALIB_THRESH_MAX = 0.30
 MIN_CALIB_SAMPLES = 30        # fewer face-frames than this -> use default
 EAR_DEFAULT_THRESH = 0.25     # fallback when calibration fails
 
+PERCLOS_WINDOW_SEC = 60.0     # rolling window for PERCLOS
+PERCLOS_THRESH = 0.30         # PERCLOS value that fires an alert
+
 YAWN_WINDOW_SEC = 60.0        # rolling window for yawn frequency
 YAWN_ALERT_COUNT = 3          # yawns within the window to trigger an alert
 
@@ -65,6 +68,38 @@ def derive_threshold(samples):
     threshold = max(CALIB_THRESH_MIN, min(CALIB_THRESH_MAX, threshold))
 
     return threshold, False
+
+
+class PerclosTracker:
+    """Rolling-window PERCLOS: fraction of recent frames with eyes closed."""
+
+    def __init__(self, window_sec):
+        self.window_sec = window_sec
+        self.samples = deque()   # (timestamp, closed)
+
+    def update(self, closed, t):
+        self.samples.append((t, closed))
+
+        while self.samples and (t - self.samples[0][0]) > self.window_sec:
+            self.samples.popleft()
+
+    def value(self):
+        if not self.samples:
+            return 0.0
+
+        closed_count = sum(1 for _, closed in self.samples if closed)
+        return closed_count / len(self.samples)
+
+    def ready(self):
+        if len(self.samples) < 2:
+            return False
+
+        span = self.samples[-1][0] - self.samples[0][0]
+        return span >= 0.5 * self.window_sec
+
+    def clear(self):
+        self.samples.clear()
+
 
 def generate_alert_message(client, episode_count, reason):
     """Ask Claude for a short, context-aware wake-up line. Falls back on failure."""
