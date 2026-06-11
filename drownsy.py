@@ -7,6 +7,7 @@ import time
 import os
 import threading
 from collections import deque
+from statistics import median
 
 import anthropic
 
@@ -22,6 +23,14 @@ EYE_AR_CONSEC_FRAMES = 20     # Consecutive frames below threshold to trigger al
 
 MOUTH_AR_THRESH = 0.5         # MAR above this → mouth wide open (yawning)
 MOUTH_AR_CONSEC_FRAMES = 15   # ~0.5 s at 30 fps; filters out talking/laughing
+
+CALIB_SECONDS = 10.0          # startup calibration capture duration
+CALIB_RATIO = 0.75            # threshold = ratio x median open-eye EAR
+CALIB_THRESH_MIN = 0.15       # clamp for the derived threshold
+CALIB_THRESH_MAX = 0.30
+MIN_CALIB_SAMPLES = 30        # fewer face-frames than this -> use default
+EAR_DEFAULT_THRESH = 0.25     # fallback when calibration fails
+
 YAWN_WINDOW_SEC = 60.0        # rolling window for yawn frequency
 YAWN_ALERT_COUNT = 3          # yawns within the window to trigger an alert
 
@@ -45,6 +54,17 @@ def mouth_aspect_ratio(mouth):
     D = dist.euclidean(mouth[0], mouth[4])
 
     return (A + B + C) / (2.0 * D)
+
+def derive_threshold(samples):
+    """Personal EAR threshold from calibration samples: ratio of the median."""
+    if len(samples) < MIN_CALIB_SAMPLES:
+        return EAR_DEFAULT_THRESH, True
+
+    open_ear = median(samples)
+    threshold = CALIB_RATIO * open_ear
+    threshold = max(CALIB_THRESH_MIN, min(CALIB_THRESH_MAX, threshold))
+
+    return threshold, False
 
 def generate_alert_message(client, episode_count, reason):
     """Ask Claude for a short, context-aware wake-up line. Falls back on failure."""
