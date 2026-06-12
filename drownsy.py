@@ -1,8 +1,10 @@
 import cv2
 import dlib
 import imutils
+import numpy as np
 from scipy.spatial import distance as dist
 from imutils import face_utils
+import math
 import time
 import os
 import threading
@@ -36,6 +38,12 @@ PERCLOS_THRESH = 0.30         # PERCLOS value that fires an alert
 YAWN_WINDOW_SEC = 60.0        # rolling window for yawn frequency
 YAWN_ALERT_COUNT = 3          # yawns within the window to trigger an alert
 
+POSE_GATE_PITCH_DEG = 10.0    # look down past this (vs neutral) -> gate eye metrics
+POSE_GATE_YAW_DEG = 15.0      # turn past this (either way) -> gate eye metrics
+SLUMP_PITCH_DEG = 25.0        # pitch-down past this = possible head slump
+SLUMP_ALERT_SEC = 2.0         # slump sustained this long -> alert
+POSE_EMA_ALPHA = 0.3          # EMA smoothing factor for head-pose angles
+
 CLAUDE_MODEL = "claude-opus-4-7"  # swap to "claude-haiku-4-5" for faster/cheaper alerts
 ALERT_COOLDOWN = 6.0              # min seconds between spoken alerts
 # -------------------------------------------------------
@@ -56,6 +64,69 @@ def mouth_aspect_ratio(mouth):
     D = dist.euclidean(mouth[0], mouth[4])
 
     return (A + B + C) / (2.0 * D)
+
+POSE_LANDMARK_IDXS = (30, 8, 36, 45, 48, 54)
+
+POSE_MODEL_POINTS = np.array([
+    (0.0, 0.0, 0.0),            # nose tip            (landmark 30)
+    (0.0, -330.0, -65.0),       # chin                (landmark 8)
+    (-225.0, 170.0, -135.0),    # left eye outer corner   (landmark 36)
+    (225.0, 170.0, -135.0),     # right eye outer corner  (landmark 45)
+    (-150.0, -150.0, -125.0),   # left mouth corner       (landmark 48)
+    (150.0, -150.0, -125.0),    # right mouth corner      (landmark 54)
+], dtype=np.float64)
+
+
+def estimate_head_pose(shape, frame_w, frame_h):
+    """Head pose from 6 landmarks via solvePnP.
+
+    Returns (pitch, yaw, roll) in degrees, where ~0 means facing the
+    camera and positive pitch means looking down, or None on failure.
+    """
+    image_points = np.array(
+        [shape[i] for i in POSE_LANDMARK_IDXS], dtype=np.float64
+    )
+
+    focal = float(frame_w)
+    camera_matrix = np.array([
+        [focal, 0.0, frame_w / 2.0],
+        [0.0, focal, frame_h / 2.0],
+        [0.0, 0.0, 1.0],
+    ], dtype=np.float64)
+
+    try:
+        ok, rvec, _ = cv2.solvePnP(
+            POSE_MODEL_POINTS,
+            image_points,
+            camera_matrix,
+            np.zeros((4, 1)),
+            flags=cv2.SOLVEPNP_ITERATIVE,
+        )
+    except cv2.error:
+        return None
+
+    if not ok:
+        return None
+
+    rot, _ = cv2.Rodrigues(rvec)
+
+    sy = math.hypot(rot[0, 0], rot[1, 0])
+
+    if sy < 1e-6:   # gimbal lock; bail out rather than guess
+        return None
+
+    pitch = math.degrees(math.atan2(rot[2, 1], rot[2, 2]))
+    yaw = math.degrees(math.atan2(-rot[2, 0], sy))
+    roll = math.degrees(math.atan2(rot[1, 0], rot[0, 0]))
+
+    # A frontal face decomposes to pitch near +-180 with this model;
+    # wrap so straight-ahead reads ~0 and looking down is positive.
+    if pitch > 90.0:
+        pitch -= 180.0
+    elif pitch < -90.0:
+        pitch += 180.0
+
+    return pitch, yaw, roll
 
 def derive_threshold(samples):
     """Personal EAR threshold from calibration samples: ratio of the median."""
