@@ -381,6 +381,7 @@ def main():
                 episode_count += 1
                 reason = (f"Driver yawned {len(yawn_times)} times within "
                           "the last minute.")
+                print(f"[TRIGGER yawn] {reason} (MAR {mar:.2f})", flush=True)
                 yawn_times.clear()   # start a fresh window after alerting
 
                 alert_busy.set()
@@ -399,6 +400,8 @@ def main():
                 episode_count += 1
                 reason = (f"Driver's eyes were closed "
                           f"{perclos:.0%} of the last minute.")
+                print(f"[TRIGGER perclos] {reason} "
+                      f"(EAR now {ear:.3f}, th {ear_thresh:.3f})", flush=True)
                 perclos_tracker.clear()   # restart the window after alerting
 
                 alert_busy.set()
@@ -436,6 +439,9 @@ def main():
                         episode_count += 1
                         reason = (f"Eyes were closed for about "
                                   f"{closed_dur:.0f} seconds.")
+                        print(f"[TRIGGER eyes] {reason} "
+                              f"(EAR {ear:.3f}, th {ear_thresh:.3f}, "
+                              f"PERCLOS {perclos:.0%})", flush=True)
 
                         alert_busy.set()
                         threading.Thread(
