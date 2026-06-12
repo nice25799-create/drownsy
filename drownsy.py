@@ -171,6 +171,107 @@ class PerclosTracker:
         self.samples.clear()
 
 
+class PoseGate:
+    """Head-pose gate + slump detector, relative to a neutral baseline.
+
+    Feed update() one (pitch, yaw, roll) per frame (or None when the
+    solve failed). Angles are EMA-smoothed; gate/slump decisions use
+    smoothed-minus-baseline values. Positive pitch = looking down.
+    """
+
+    def __init__(self, gate_pitch_deg, gate_yaw_deg, slump_pitch_deg,
+                 slump_alert_sec, ema_alpha, lazy_baseline_frames=60):
+        self.gate_pitch_deg = gate_pitch_deg
+        self.gate_yaw_deg = gate_yaw_deg
+        self.slump_pitch_deg = slump_pitch_deg
+        self.slump_alert_sec = slump_alert_sec
+        self.ema_alpha = ema_alpha
+        self.lazy_baseline_frames = lazy_baseline_frames
+
+        self.baseline = None      # (pitch, yaw) neutral, once known
+        self.pitch = None         # EMA-smoothed absolute angles
+        self.yaw = None
+        self.roll = None
+        self.rel_pitch = None     # smoothed minus baseline (None until valid)
+        self.rel_yaw = None
+        self._lazy_samples = []
+        self._slump_start = None
+        self._slump_alerted = False
+
+    def set_baseline(self, pitch, yaw):
+        self.baseline = (pitch, yaw)
+
+    def update(self, pose, now):
+        if pose is None:
+            self.rel_pitch = None
+            self.rel_yaw = None
+            self._slump_start = None
+            self._slump_alerted = False
+            return
+
+        pitch, yaw, roll = pose
+
+        if self.pitch is None:
+            self.pitch, self.yaw, self.roll = pitch, yaw, roll
+        else:
+            a = self.ema_alpha
+            self.pitch = a * pitch + (1.0 - a) * self.pitch
+            self.yaw = a * yaw + (1.0 - a) * self.yaw
+            self.roll = a * roll + (1.0 - a) * self.roll
+
+        if self.baseline is None:
+            self._lazy_samples.append((pitch, yaw))
+
+            if len(self._lazy_samples) < self.lazy_baseline_frames:
+                return   # still collecting; stay ungated
+
+            self.baseline = (
+                median([p for p, _ in self._lazy_samples]),
+                median([y for _, y in self._lazy_samples]),
+            )
+
+        self.rel_pitch = self.pitch - self.baseline[0]
+        self.rel_yaw = self.yaw - self.baseline[1]
+
+        if self.rel_pitch > self.slump_pitch_deg:
+            if self._slump_start is None:
+                self._slump_start = now
+        else:
+            self._slump_start = None
+            self._slump_alerted = False
+
+    def is_gated(self):
+        if self.rel_pitch is None:
+            return False
+
+        return (self.rel_pitch > self.gate_pitch_deg
+                or abs(self.rel_yaw) > self.gate_yaw_deg)
+
+    def slump_elapsed(self, now):
+        if self._slump_start is None:
+            return 0.0
+
+        return now - self._slump_start
+
+    def slump_alert_due(self, now):
+        """True exactly once per slump episode; only call when ready to alert."""
+        if self._slump_start is None or self._slump_alerted:
+            return False
+
+        if (now - self._slump_start) >= self.slump_alert_sec:
+            self._slump_alerted = True
+            return True
+
+        return False
+
+    def reset_transient(self):
+        """On face loss: drop smoothing + slump state, keep the baseline."""
+        self.pitch = self.yaw = self.roll = None
+        self.rel_pitch = self.rel_yaw = None
+        self._slump_start = None
+        self._slump_alerted = False
+
+
 def calibrate_ear(vs, detector, predictor, l_idx, r_idx):
     """Collect open-eye EAR samples for CALIB_SECONDS, then derive a threshold.
 
