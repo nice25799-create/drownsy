@@ -274,6 +274,7 @@ def main():
     episode_count = 0           # how many alerts this session
     last_alert_time = 0.0       # for the cooldown
     alert_busy = threading.Event()   # set while an alert thread is running
+    perclos_tracker = PerclosTracker(PERCLOS_WINDOW_SEC)
 
     while True:
         ret, frame = vs.read()
@@ -342,6 +343,8 @@ def main():
 
             # Yawn detection: mouth wide open for enough consecutive time
             now = time.time()
+            perclos_tracker.update(ear < ear_thresh, now)
+            perclos = perclos_tracker.value()
 
             if mar > MOUTH_AR_THRESH:
                 if mouth_open_start is None:
@@ -379,6 +382,24 @@ def main():
                 reason = (f"Driver yawned {len(yawn_times)} times within "
                           "the last minute.")
                 yawn_times.clear()   # start a fresh window after alerting
+
+                alert_busy.set()
+                threading.Thread(
+                    target=handle_alert,
+                    args=(client, episode_count, reason, alert_busy),
+                    daemon=True,
+                ).start()
+
+            # Sustained partial closure over the window -> spoken alert
+            if (perclos_tracker.ready()
+                    and perclos >= PERCLOS_THRESH
+                    and not alert_busy.is_set()
+                    and (now - last_alert_time) > ALERT_COOLDOWN):
+                last_alert_time = now
+                episode_count += 1
+                reason = (f"Driver's eyes were closed "
+                          f"{perclos:.0%} of the last minute.")
+                perclos_tracker.clear()   # restart the window after alerting
 
                 alert_busy.set()
                 threading.Thread(
@@ -428,12 +449,14 @@ def main():
                 ALARM_ON = False
 
             # Display EAR / MAR values and yawn count
+            thresh_note = " default" if ear_thresh_is_default else ""
+
             cv2.putText(
                 frame,
-                f"EAR: {ear:.2f}",
-                (300, 30),
+                f"EAR: {ear:.2f} (th {ear_thresh:.2f}{thresh_note})",
+                (230, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
+                0.55,
                 (0, 0, 255),
                 2
             )
@@ -445,6 +468,20 @@ def main():
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (0, 0, 255),
+                2
+            )
+
+            perclos_color = (
+                (0, 0, 255) if perclos >= PERCLOS_THRESH else (0, 255, 255)
+            )
+
+            cv2.putText(
+                frame,
+                f"PERCLOS: {perclos:.0%}",
+                (300, 80),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                perclos_color,
                 2
             )
 
