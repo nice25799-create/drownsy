@@ -32,16 +32,16 @@ Tasks 1–2 are TDD (pure logic). Tasks 3–5 are integration edits to the inter
 - Create: `tests/test_drowsy_logic.py`
 - Modify: `drownsy.py` (imports + config block + new function)
 
-- [ ] **Step 1: Ensure pytest is installed**
+- [x] **Step 1: Ensure pytest is installed**
 
 Run: `python -m pytest --version`
 Expected: a version line like `pytest 8.x.x`. If instead you get `No module named pytest`, run: `pip install pytest` and re-check.
 
-- [ ] **Step 2: Create empty `conftest.py` in the project root**
+- [x] **Step 2: Create empty `conftest.py` in the project root**
 
 Create `D:\project\conftest.py` with no content (empty file). Without it, pytest does not put the project root on `sys.path`, and `import drownsy` fails inside `tests/`.
 
-- [ ] **Step 3: Write the failing tests**
+- [x] **Step 3: Write the failing tests**
 
 Create `tests/test_drowsy_logic.py`:
 
@@ -86,12 +86,12 @@ def test_threshold_clamped_high():
     assert thresh == drownsy.CALIB_THRESH_MAX
 ```
 
-- [ ] **Step 4: Run tests to verify they fail**
+- [x] **Step 4: Run tests to verify they fail**
 
 Run: `python -m pytest tests/test_drowsy_logic.py -v`
 Expected: 5 failures/errors, each `AttributeError: module 'drownsy' has no attribute ...` (the constants and function don't exist yet). The import of `drownsy` itself must succeed (cv2/dlib/etc. are installed).
 
-- [ ] **Step 5: Add config constants and `derive_threshold` to `drownsy.py`**
+- [x] **Step 5: Add config constants and `derive_threshold` to `drownsy.py`**
 
 Add to the imports block (after `from collections import deque`):
 
@@ -125,12 +125,12 @@ def derive_threshold(samples):
     return threshold, False
 ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_drowsy_logic.py -v`
 Expected: `5 passed`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add conftest.py tests/test_drowsy_logic.py drownsy.py
@@ -145,7 +145,7 @@ git commit -m "test: add pytest setup and derive_threshold for personal EAR cali
 - Modify: `tests/test_drowsy_logic.py` (append tests)
 - Modify: `drownsy.py` (config + new class)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_drowsy_logic.py`:
 
@@ -196,12 +196,12 @@ def test_clear_resets_window():
     assert tr.ready() is False
 ```
 
-- [ ] **Step 2: Run tests to verify the new ones fail**
+- [x] **Step 2: Run tests to verify the new ones fail**
 
 Run: `python -m pytest tests/test_drowsy_logic.py -v`
 Expected: 5 passed (Task 1), 5 errors with `AttributeError: module 'drownsy' has no attribute 'PerclosTracker'`
 
-- [ ] **Step 3: Add PERCLOS config and the class to `drownsy.py`**
+- [x] **Step 3: Add PERCLOS config and the class to `drownsy.py`**
 
 In the configuration block, add after the `EAR_DEFAULT_THRESH` line:
 
@@ -244,12 +244,12 @@ class PerclosTracker:
         self.samples.clear()
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_drowsy_logic.py -v`
 Expected: `10 passed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/test_drowsy_logic.py drownsy.py
@@ -265,7 +265,7 @@ Interactive webcam code — no unit tests; correctness is verified by the suite 
 **Files:**
 - Modify: `drownsy.py` (new function + wiring in `main()`; threshold variable replaces `EYE_AR_THRESH`)
 
-- [ ] **Step 1: Add `calibrate_ear()` after `PerclosTracker`**
+- [x] **Step 1: Add `calibrate_ear()` after `PerclosTracker`**
 
 ```python
 def calibrate_ear(vs, detector, predictor, l_idx, r_idx):
@@ -344,7 +344,7 @@ def calibrate_ear(vs, detector, predictor, l_idx, r_idx):
     return threshold, used_default
 ```
 
-- [ ] **Step 2: Wire calibration into `main()` and switch the loop to the calibrated threshold**
+- [x] **Step 2: Wire calibration into `main()` and switch the loop to the calibrated threshold**
 
 In `main()`, directly after `time.sleep(2.0)` and before the state variables, insert:
 
@@ -376,12 +376,12 @@ to:
 
 Finally, delete the now-unused `EYE_AR_THRESH = 0.25` line from the configuration block.
 
-- [ ] **Step 3: Run the suite + import smoke test**
+- [x] **Step 3: Run the suite + import smoke test**
 
 Run: `python -m pytest tests/test_drowsy_logic.py -v && python -c "import drownsy; print('import ok')"`
 Expected: `10 passed`, then `import ok`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add drownsy.py
@@ -395,7 +395,7 @@ git commit -m "feat: run per-user EAR calibration at startup"
 **Files:**
 - Modify: `drownsy.py` (config block + state variables + the two trigger blocks in `main()`)
 
-- [ ] **Step 1: Swap the frame-count constants for seconds**
+- [x] **Step 1: Swap the frame-count constants for seconds**
 
 In the configuration block, delete these two lines:
 
@@ -411,7 +411,7 @@ EYE_CLOSED_ALERT_SEC = 1.0    # continuous eye closure that fires the alert
 MOUTH_OPEN_YAWN_SEC = 0.5     # continuous open mouth that counts as one yawn
 ```
 
-- [ ] **Step 2: Replace the state variables in `main()`**
+- [x] **Step 2: Replace the state variables in `main()`**
 
 Delete these lines (currently just before/inside the pre-loop state setup):
 
@@ -439,7 +439,7 @@ Replace with:
 
 (`episode_count`, `last_alert_time`, `alert_busy` stay unchanged.)
 
-- [ ] **Step 3: Compute `now` once per face, right after MAR**
+- [x] **Step 3: Compute `now` once per face, right after MAR**
 
 In the per-face section, after `mar = mouth_aspect_ratio(mouth)` and the mouth hull drawing, the existing yawn block starts. Insert one line *before* the `if mar > MOUTH_AR_THRESH:` line:
 
@@ -449,7 +449,7 @@ In the per-face section, after `mar = mouth_aspect_ratio(mouth)` and the mouth h
 
 and delete the later duplicate `now = time.time()` line that currently sits under the `# Drop yawns that fell out of the rolling window` comment (the eviction loop keeps using `now`). Also delete the second `now = time.time()` inside the drowsiness block (after the `DROWSINESS ALERT!` putText) — everything in this iteration uses the single `now`.
 
-- [ ] **Step 4: Make the yawn trigger time-based**
+- [x] **Step 4: Make the yawn trigger time-based**
 
 Replace this block:
 
@@ -496,7 +496,7 @@ with:
 
 (The `YAWNING` putText inside the block stays exactly where it is.)
 
-- [ ] **Step 5: Make the eye-closure trigger time-based**
+- [x] **Step 5: Make the eye-closure trigger time-based**
 
 Replace the drowsiness block:
 
@@ -571,12 +571,12 @@ becomes:
                 ALARM_ON = False
 ```
 
-- [ ] **Step 6: Run the suite + import smoke test**
+- [x] **Step 6: Run the suite + import smoke test**
 
 Run: `python -m pytest tests/test_drowsy_logic.py -v && python -c "import drownsy; print('import ok')"`
 Expected: `10 passed`, then `import ok`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add drownsy.py
@@ -590,7 +590,7 @@ git commit -m "feat: replace frame-count detection with time-based thresholds"
 **Files:**
 - Modify: `drownsy.py` (`main()` only)
 
-- [ ] **Step 1: Create the tracker before the loop**
+- [x] **Step 1: Create the tracker before the loop**
 
 In `main()`, next to the state variables added in Task 4, add:
 
@@ -598,7 +598,7 @@ In `main()`, next to the state variables added in Task 4, add:
     perclos_tracker = PerclosTracker(PERCLOS_WINDOW_SEC)
 ```
 
-- [ ] **Step 2: Feed the tracker every face-frame**
+- [x] **Step 2: Feed the tracker every face-frame**
 
 Directly after the `now = time.time()` line (Task 4 Step 3), add:
 
@@ -607,7 +607,7 @@ Directly after the `now = time.time()` line (Task 4 Step 3), add:
             perclos = perclos_tracker.value()
 ```
 
-- [ ] **Step 3: Fire the PERCLOS alert**
+- [x] **Step 3: Fire the PERCLOS alert**
 
 Directly after the existing yawn-frequency alert block (the one ending with the `threading.Thread(...).start()` for yawns), add:
 
@@ -631,7 +631,7 @@ Directly after the existing yawn-frequency alert block (the one ending with the 
                 ).start()
 ```
 
-- [ ] **Step 4: Update the HUD**
+- [x] **Step 4: Update the HUD**
 
 Replace the EAR putText:
 
@@ -681,12 +681,12 @@ After the MAR putText block, add:
             )
 ```
 
-- [ ] **Step 5: Run the suite + import smoke test**
+- [x] **Step 5: Run the suite + import smoke test**
 
 Run: `python -m pytest tests/test_drowsy_logic.py -v && python -c "import drownsy; print('import ok')"`
 Expected: `10 passed`, then `import ok`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add drownsy.py
@@ -701,7 +701,7 @@ git commit -m "feat: add PERCLOS alert and HUD readout"
 - Modify: `CLAUDE.md` (tunables sentence)
 - Modify: `.claude/skills/run-drowsy/SKILL.md` (tunables sentence)
 
-- [ ] **Step 1: Manual verification (needs the user at the webcam)**
+- [x] **Step 1: Manual verification (needs the user at the webcam)** — *partially verified 2026-06-12 over three runs: checks 1, 2, 3, and 6-detection passed (calibration 0.195–0.219, eye alert with correct telemetry, clean q-quit ×3; PERCLOS baseline 4–17% with ready-gate holding). Not demonstrated live: yawn alert, PERCLOS alert firing, q during calibration. Finding: EAR conflates downward gaze with closure → lookdown false alarms on the eye path; root-caused and deferred to the head-pose feature.*
 
 Run: `python drownsy.py` — then check, in order:
 
@@ -714,7 +714,7 @@ Run: `python drownsy.py` — then check, in order:
 
 If any check fails: STOP, debug with the systematic-debugging skill before continuing.
 
-- [ ] **Step 2: Update `CLAUDE.md`**
+- [x] **Step 2: Update `CLAUDE.md`**
 
 In the Architecture section, replace the tunables sentence:
 
@@ -730,7 +730,7 @@ with:
 
 Also update the "two independent detection paths" bullet to mention PERCLOS: change "*Eye closure*: Eye Aspect Ratio (EAR) averaged over both eyes. EAR below `EYE_AR_THRESH` for `EYE_AR_CONSEC_FRAMES` consecutive frames fires a drowsiness alert (one per closure episode)." to "*Eye closure*: Eye Aspect Ratio (EAR) averaged over both eyes, against a per-user threshold calibrated at startup. Continuous closure ≥ `EYE_CLOSED_ALERT_SEC` fires an alert (one per episode); separately, PERCLOS (fraction of the last 60 s spent closed) ≥ `PERCLOS_THRESH` fires a slow-droop alert."
 
-- [ ] **Step 3: Update `.claude/skills/run-drowsy/SKILL.md`**
+- [x] **Step 3: Update `.claude/skills/run-drowsy/SKILL.md`**
 
 Replace its closing line:
 
@@ -744,7 +744,7 @@ with:
 This is an interactive GUI app — run it in the foreground. On launch it runs a ~10 s EAR calibration (user looks at the camera, eyes open) before detection starts. Key tunables are at the top of drownsy.py: CALIB_SECONDS, CALIB_RATIO, EYE_CLOSED_ALERT_SEC, PERCLOS_THRESH, CLAUDE_MODEL, ALERT_COOLDOWN.
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add CLAUDE.md .claude/skills/run-drowsy/SKILL.md

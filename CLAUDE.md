@@ -13,9 +13,10 @@ Run everything from the project root (`D:\project`).
 - Run the app: `python drownsy.py` — opens a webcam window; quit with `q` **in the video window** (not Ctrl-C).
 - Webcam diagnostic: `python camtest.py` — probes camera indices 0–2 across DirectShow / Media Foundation / default backends and prints which combo works.
 - Dependency check: `python -c "import cv2, dlib, imutils, scipy, anthropic; print('deps ok')"` (`pyttsx3` is optional; without it alerts are print-only).
+- Run tests: `python -m pytest tests/test_drowsy_logic.py -v` — pure-logic tests (threshold derivation, PERCLOS window); no webcam or network needed.
 - Re-extract reference text from PDFs: `python reference\_extract.py` (writes `reference\_text\*.txt`).
 
-There is no build step, no linter, and no test suite. Dependencies are installed ad hoc with `pip install` (no requirements.txt). Python 3.11.
+There is no build step and no linter. Dependencies are installed ad hoc with `pip install` (no requirements.txt). Python 3.11.
 
 ## Required assets & environment
 
@@ -27,11 +28,11 @@ There is no build step, no linter, and no test suite. Dependencies are installed
 `drownsy.py` is the whole application — one `main()` loop plus helpers. Key pieces:
 
 - **Two independent detection paths** run per frame inside the face loop:
-  - *Eye closure*: Eye Aspect Ratio (EAR) averaged over both eyes. EAR below `EYE_AR_THRESH` for `EYE_AR_CONSEC_FRAMES` consecutive frames fires a drowsiness alert (one per closure episode).
+  - *Eye closure*: Eye Aspect Ratio (EAR) averaged over both eyes, against a per-user threshold calibrated at startup. Continuous closure ≥ `EYE_CLOSED_ALERT_SEC` fires an alert (one per episode); separately, PERCLOS (fraction of the last 60 s spent closed) ≥ `PERCLOS_THRESH` fires a slow-droop alert.
   - *Yawning*: Mouth Aspect Ratio (MAR) from the 8 inner-lip landmarks (dlib indices `60:68`). MAR above `MOUTH_AR_THRESH` for enough frames counts as one yawn; `YAWN_ALERT_COUNT` yawns inside a rolling `YAWN_WINDOW_SEC` window (tracked in a `deque` of timestamps) fires an alert.
 - **Alert pipeline is asynchronous.** When either path triggers, a `daemon` thread runs `handle_alert` → `generate_alert_message` (Claude call) → `speak` (pyttsx3 TTS). The main video loop never blocks on the network or speech. Two guards prevent alert spam: a `threading.Event` (`alert_busy`) ensures only one alert is in flight, and `ALERT_COOLDOWN` enforces a minimum gap between alerts.
 - **Claude integration** lives in `generate_alert_message`: it asks for a short spoken wake-up line, passing the episode count and a `reason` string (e.g. eye-closure duration or yawn count). Any exception falls back to the fixed phrase, so a missing key or network failure degrades gracefully. Model is set by `CLAUDE_MODEL`.
-- **Tunables** are a labeled config block at the top of `drownsy.py` (`EYE_AR_THRESH`, `EYE_AR_CONSEC_FRAMES`, `MOUTH_AR_THRESH`, `MOUTH_AR_CONSEC_FRAMES`, `YAWN_WINDOW_SEC`, `YAWN_ALERT_COUNT`, `CLAUDE_MODEL`, `ALERT_COOLDOWN`). Threshold tuning is the most common edit.
+- **Tunables** are a labeled config block at the top of `drownsy.py` (calibration: `CALIB_SECONDS`, `CALIB_RATIO`, clamps, `EAR_DEFAULT_THRESH`; detection: `EYE_CLOSED_ALERT_SEC`, `MOUTH_AR_THRESH`, `MOUTH_OPEN_YAWN_SEC`, `PERCLOS_WINDOW_SEC`, `PERCLOS_THRESH`, `YAWN_WINDOW_SEC`, `YAWN_ALERT_COUNT`; alerts: `CLAUDE_MODEL`, `ALERT_COOLDOWN`). Threshold tuning is the most common edit. The EAR threshold itself is calibrated per user at startup (10 s), not hardcoded.
 
 `camtest.py` matters because `drownsy.py` hardcodes `cv2.VideoCapture(0)`. If the working camera turns out to be a different index/backend, that line in `drownsy.py` needs to match.
 
@@ -39,9 +40,9 @@ There is no build step, no linter, and no test suite. Dependencies are installed
 
 Full background lives in `DROWSINESS_RESEARCH.md` (concepts, ~60-paper library, datasets). Condensed essentials:
 
-- **Headline research angle: posture.** The project's distinguishing interest is drowsiness ↔ **posture** (head pose pitch/yaw/roll, body/sitting posture, seat-pressure), on top of the usual eye/face cues. This is **not yet implemented** — `drownsy.py` currently covers only EAR (eyes) + MAR (yawning). Head-pose and posture features are the roadmap, so new feature work likely heads in that direction.
+- **Headline research angle: posture.** The project's distinguishing interest is drowsiness ↔ **posture** (head pose pitch/yaw/roll, body/sitting posture, seat-pressure), on top of the usual eye/face cues. This is **not yet implemented** — `drownsy.py` currently covers EAR (eyes, per-user calibrated) + PERCLOS + MAR (yawning). Head-pose and posture features are the roadmap, so new feature work likely heads in that direction. **Known limitation (verified live 2026-06-12):** EAR cannot distinguish downward gaze from eye closure — looking at the keyboard/phone collapses EAR and fires false eye-closure alerts; head-pose pitch gating is the planned fix.
 - **Standard pipeline:** capture → detect/track (Dlib 68-landmarks, MediaPipe, YOLO) → extract features → classify (threshold rules, classic ML, or deep learning) → alert.
-- **Metric vocabulary to use:** EAR (drowsy ~0.2–0.25 sustained), MAR (rises when yawning), **PERCLOS** (% eye closure over time, flagged ≥~0.3 — the most-cited vision measure, not yet computed here), head-pose angles, posture/seat-pressure indices (COP, fractal dimension), HRV. Modalities group as behavioral / vehicular / physiological.
+- **Metric vocabulary to use:** EAR (drowsy ~0.2–0.25 sustained), MAR (rises when yawning), **PERCLOS** (% eye closure over time, flagged ≥~0.3 — the most-cited vision measure, computed here over a rolling 60 s window), head-pose angles, posture/seat-pressure indices (COP, fractal dimension), HRV. Modalities group as behavioral / vehicular / physiological.
 - **Benchmark datasets** (for any ML/validation work): NTHU-DDD (most-cited IR benchmark), UTA-RLDD, YawDD (yawning), DROZY (physiological), MRL Eye (eye-state). Models trained on one dataset often don't generalize — validate cross-dataset.
 - **Caveat:** vision-only is cheap and non-intrusive but lighting/occlusion-sensitive; combining eye + mouth + head/posture cues is the robustness path. This is a research reference, not safety-certified.
 
