@@ -186,8 +186,10 @@ def test_none_pose_ungates_and_resets_slump():
 def test_slump_fires_once_after_duration():
     g = make_gate()
     g.set_baseline(0.0, 0.0)
+    assert g.slump_elapsed(0.0) == 0.0        # no episode yet
 
     g.update((30.0, 0.0, 0.0), 0.0)
+    assert g.slump_elapsed(1.9) == pytest.approx(1.9)
     assert g.slump_alert_due(1.9) is False    # under 2.0 s
     g.update((30.0, 0.0, 0.0), 2.0)
     assert g.slump_alert_due(2.0) is True     # fires at the threshold
@@ -242,3 +244,17 @@ def test_reset_transient_keeps_baseline():
     g.update((30.0, 0.0, 0.0), 11.0)          # face back: fresh episode
     assert g.is_gated() is True
     assert g.slump_alert_due(13.0) is True
+
+
+# ---------- derive_pose_baseline ----------
+
+def test_pose_baseline_is_median_of_samples():
+    pitch = [4.0] * 90 + [40.0] * 10   # a few look-down frames must not skew it
+    yaw = [-1.0] * 100
+    baseline = drownsy.derive_pose_baseline(pitch, yaw)
+    assert baseline == pytest.approx((4.0, -1.0))
+
+
+def test_pose_baseline_none_when_too_few_samples():
+    n = drownsy.MIN_CALIB_SAMPLES - 1
+    assert drownsy.derive_pose_baseline([0.0] * n, [0.0] * n) is None

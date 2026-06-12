@@ -140,6 +140,14 @@ def derive_threshold(samples):
     return threshold, False
 
 
+def derive_pose_baseline(pitch_samples, yaw_samples):
+    """Neutral (pitch, yaw) from calibration samples, or None if too few."""
+    if len(pitch_samples) < MIN_CALIB_SAMPLES:
+        return None
+
+    return (median(pitch_samples), median(yaw_samples))
+
+
 class PerclosTracker:
     """Rolling-window PERCLOS: fraction of recent frames with eyes closed."""
 
@@ -229,6 +237,7 @@ class PoseGate:
                 median([p for p, _ in self._lazy_samples]),
                 median([y for _, y in self._lazy_samples]),
             )
+            self._lazy_samples = []
 
         self.rel_pitch = self.pitch - self.baseline[0]
         self.rel_yaw = self.yaw - self.baseline[1]
@@ -266,6 +275,8 @@ class PoseGate:
 
     def reset_transient(self):
         """On face loss: drop smoothing + slump state, keep the baseline."""
+        # _lazy_samples deliberately survives face loss: baseline collection
+        # resumes where it left off when the face comes back.
         self.pitch = self.yaw = self.roll = None
         self.rel_pitch = self.rel_yaw = None
         self._slump_start = None
@@ -275,12 +286,15 @@ class PoseGate:
 def calibrate_ear(vs, detector, predictor, l_idx, r_idx):
     """Collect open-eye EAR samples for CALIB_SECONDS, then derive a threshold.
 
-    Returns (threshold, used_default), or None if the user pressed q.
+    Returns (threshold, used_default, pose_baseline) — pose_baseline is
+    (pitch, yaw) or None — or None overall if the user pressed q.
     """
     (lStart, lEnd) = l_idx
     (rStart, rEnd) = r_idx
 
     samples = []
+    pitch_samples = []
+    yaw_samples = []
     start = time.time()
 
     while True:
@@ -310,6 +324,14 @@ def calibrate_ear(vs, detector, predictor, l_idx, r_idx):
             ear = (leftEAR + rightEAR) / 2.0
             samples.append(ear)
 
+            pose = estimate_head_pose(
+                shape, frame.shape[1], frame.shape[0]
+            )
+
+            if pose is not None:
+                pitch_samples.append(pose[0])
+                yaw_samples.append(pose[1])
+
         cv2.putText(
             frame,
             f"CALIBRATING - look at camera, eyes open ({remaining:.0f}s)",
@@ -337,6 +359,7 @@ def calibrate_ear(vs, detector, predictor, l_idx, r_idx):
             return None
 
     threshold, used_default = derive_threshold(samples)
+    pose_baseline = derive_pose_baseline(pitch_samples, yaw_samples)
 
     if used_default:
         print(f"[WARN] Calibration failed ({len(samples)} samples); "
@@ -345,7 +368,14 @@ def calibrate_ear(vs, detector, predictor, l_idx, r_idx):
         print(f"[INFO] Calibrated EAR threshold: {threshold:.3f} "
               f"(from {len(samples)} samples)")
 
-    return threshold, used_default
+    if pose_baseline is None:
+        print(f"[WARN] No head-pose baseline ({len(pitch_samples)} pose "
+              "samples); will capture one during detection.")
+    else:
+        print(f"[INFO] Neutral head pose: pitch {pose_baseline[0]:+.1f}, "
+              f"yaw {pose_baseline[1]:+.1f} deg")
+
+    return threshold, used_default, pose_baseline
 
 
 def generate_alert_message(client, episode_count, reason):
@@ -435,7 +465,7 @@ def main():
         cv2.destroyAllWindows()
         return
 
-    ear_thresh, ear_thresh_is_default = calib
+    ear_thresh, ear_thresh_is_default, pose_baseline = calib
 
     closure_start = None        # when the current eye-closure began
     ALARM_ON = False
@@ -447,6 +477,17 @@ def main():
     last_alert_time = 0.0       # for the cooldown
     alert_busy = threading.Event()   # set while an alert thread is running
     perclos_tracker = PerclosTracker(PERCLOS_WINDOW_SEC)
+
+    pose_gate = PoseGate(
+        POSE_GATE_PITCH_DEG,
+        POSE_GATE_YAW_DEG,
+        SLUMP_PITCH_DEG,
+        SLUMP_ALERT_SEC,
+        POSE_EMA_ALPHA,
+    )
+
+    if pose_baseline is not None:
+        pose_gate.set_baseline(*pose_baseline)
 
     while True:
         ret, frame = vs.read()
