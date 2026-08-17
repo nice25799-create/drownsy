@@ -51,6 +51,8 @@ Full background lives in `DROWSINESS_RESEARCH.md` (concepts, ~60-paper library, 
 
 `reference\` holds the research PDFs behind the thresholds and approach, with pre-extracted plain text in `reference\_text\*.txt`. Search the `_text` files (not the PDFs) when looking up what a paper says — the `ref-search` skill automates this and includes a filename→paper key. The broader (mostly online-only) paper library is catalogued in `DROWSINESS_RESEARCH.md` §4.
 
+**`reference\` is gitignored and exists only on the original author's machine** — the papers are copyrighted and this repo is public, so they are not redistributed here. A fresh clone will not have the folder, and `ref-search` will find nothing. `DROWSINESS_RESEARCH.md` §4 lists every paper by title so they can be sourced individually.
+
 ## Project skills
 
 `.claude/skills/` defines three workflows: `run-drowsy` (launch with pre-flight checks), `camtest` (webcam diagnostics + privacy-setting troubleshooting), and `ref-search` (topic search across the reference papers). Prefer these for the tasks they cover.

@@ -7,3 +7,7 @@ shape_predictor_68_face_landmarks.dat
 
 # local Claude Code permissions
 .claude/settings.local.json
+
+# Research papers: copyrighted, not ours to redistribute from a public repo.
+# Kept locally for reference; see DROWSINESS_RESEARCH.md for the paper list.
+reference/

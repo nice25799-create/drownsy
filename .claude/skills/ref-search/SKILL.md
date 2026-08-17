@@ -5,7 +5,7 @@ description: Search the project's reference papers (extracted text in reference/
 
 The user provides a topic or keyword as the argument (e.g. "PERCLOS", "yawning", "calibration", "random forest").
 
-1. The reference papers live as PDFs in `D:\project\reference\` with pre-extracted plain text in `D:\project\reference\_text\*.txt`. Always search the `_text` folder, not the PDFs.
+1. The reference papers live as PDFs in `D:\project\reference\` with pre-extracted plain text in `D:\project\reference\_text\*.txt`. Always search the `_text` folder, not the PDFs. **This folder is gitignored and is not part of the public repo** (the papers are copyrighted). If it is missing, say so and point the user at `DROWSINESS_RESEARCH.md` §4, which lists the papers by title — do not guess at their contents.
 2. Use the Grep tool with `-i` and a few lines of context (`-C 3`) to find the topic across all txt files. Try synonyms too (e.g. PERCLOS / "percentage of eyelid closure"; MAR / "mouth aspect ratio"; head pose / nodding).
 3. Read the surrounding sections of the strongest matches to understand the context — not just the matching line.
 4. Summarize per paper: which paper says what about the topic, including concrete numbers (thresholds, accuracies, window sizes) when present. Cite the paper filename so the user can find it.
