@@ -714,6 +714,13 @@ def main():
                 2
             )
 
+        if not rects:
+            # No face means no eye evidence, so the closure episode has to end.
+            # Leaving it running billed the whole no-face gap as one long
+            # closure the moment the face reappeared.
+            closure_start = None
+            ALARM_ON = False
+
         # Show frame
         cv2.imshow("Frame", frame)
 
