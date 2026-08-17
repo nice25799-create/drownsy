@@ -13,4 +13,4 @@ Launch the drowsiness detector with pre-flight checks:
 4. Run `python drownsy.py` from the project root (D:\project). It opens a webcam window; the user quits with `q` in the video window.
 5. If the webcam fails to open, suggest running /camtest to diagnose.
 
-This is an interactive GUI app — run it in the foreground. On launch it runs a ~10 s EAR calibration (user looks at the camera, eyes open) before detection starts. Key tunables are at the top of drownsy.py: CALIB_SECONDS, CALIB_RATIO, EYE_CLOSED_ALERT_SEC, PERCLOS_THRESH, CLAUDE_MODEL, ALERT_COOLDOWN.
+This is an interactive GUI app — run it in the foreground. On launch it runs a ~10 s EAR calibration (user looks at the camera, eyes open) before detection starts. Key tunables are at the top of drownsy.py: CALIB_SECONDS, CALIB_RATIO, EYE_CLOSED_ALERT_SEC, PERCLOS_THRESH, POSE_GATE_PITCH_DEG, SLUMP_PITCH_DEG, CLAUDE_MODEL, ALERT_COOLDOWN.

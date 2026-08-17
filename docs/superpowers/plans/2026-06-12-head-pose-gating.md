@@ -1,4 +1,4 @@
-# Head-Pose Gating + Slump Alert Implementation Plan
+﻿# Head-Pose Gating + Slump Alert Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -34,7 +34,7 @@
 
 ### Task 0: Branch
 
-- [ ] **Step 1: Create the feature branch**
+- [x] **Step 1: Create the feature branch**
 
 ```bash
 git checkout -b feature/head-pose-gating
@@ -51,7 +51,7 @@ Expected: `feature/head-pose-gating`
 - Modify: `drownsy.py` (imports, config block, new constants + function after `mouth_aspect_ratio`)
 - Create: `tests/test_head_pose.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_head_pose.py` with a synthetic-projection helper and round-trip tests. The helper builds a rotation the same way the camera sees a head (frontal face = 180° about X for this model), projects the 3D model points with `cv2.projectPoints`, and plants them in a fake 68-point landmark array.
 
@@ -153,12 +153,12 @@ def test_combined_pitch_and_yaw():
     assert abs(yaw) == pytest.approx(20.0, abs=2.0)
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `python -m pytest tests/test_head_pose.py -v`
 Expected: collection error / failures with `AttributeError: module 'drownsy' has no attribute 'POSE_MODEL_POINTS'` (the module imports fine; the new names don't exist yet).
 
-- [ ] **Step 3: Implement the pose function**
+- [x] **Step 3: Implement the pose function**
 
 Three edits to `drownsy.py`.
 
@@ -267,7 +267,7 @@ def estimate_head_pose(shape, frame_w, frame_h):
     return pitch, yaw, roll
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_head_pose.py -v`
 Expected: 5 passed.
@@ -275,7 +275,7 @@ Expected: 5 passed.
 Run: `python -m pytest -v`
 Expected: 15 passed (10 existing + 5 new); proves `drownsy.py` still imports cleanly.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add drownsy.py tests/test_head_pose.py
@@ -290,7 +290,7 @@ git commit -m "feat: add solvePnP head-pose estimation"
 - Modify: `drownsy.py` (new class after `PerclosTracker`)
 - Test: `tests/test_head_pose.py` (append)
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_head_pose.py`. `ema_alpha=1.0` disables smoothing so most tests are deterministic; one test exercises the EMA explicitly.
 
@@ -427,12 +427,12 @@ def test_reset_transient_keeps_baseline():
     assert g.slump_alert_due(13.0) is True
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `python -m pytest tests/test_head_pose.py -v`
 Expected: the 5 pose-math tests pass; the 10 new tests fail with `AttributeError: module 'drownsy' has no attribute 'PoseGate'`.
 
-- [ ] **Step 3: Implement `PoseGate`**
+- [x] **Step 3: Implement `PoseGate`**
 
 In `drownsy.py`, immediately after the `PerclosTracker` class (after its `clear` method, before `def calibrate_ear`), insert:
 
@@ -538,7 +538,7 @@ class PoseGate:
         self._slump_alerted = False
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_head_pose.py -v`
 Expected: 15 passed.
@@ -546,7 +546,7 @@ Expected: 15 passed.
 Run: `python -m pytest -v`
 Expected: 25 passed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add drownsy.py tests/test_head_pose.py
@@ -563,7 +563,7 @@ git commit -m "feat: add PoseGate head-pose gate and slump detector"
 
 After this task the app still runs exactly as before — `main()` constructs a `PoseGate` and prints the baseline, but the detection loop doesn't use it yet (that's Task 4).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_head_pose.py`:
 
@@ -582,12 +582,12 @@ def test_pose_baseline_none_when_too_few_samples():
     assert drownsy.derive_pose_baseline([0.0] * n, [0.0] * n) is None
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `python -m pytest tests/test_head_pose.py -v`
 Expected: 15 pass, 2 fail with `AttributeError: module 'drownsy' has no attribute 'derive_pose_baseline'`.
 
-- [ ] **Step 3: Implement and wire calibration**
+- [x] **Step 3: Implement and wire calibration**
 
 Three edits to `drownsy.py`.
 
@@ -695,7 +695,7 @@ And right after the `perclos_tracker = PerclosTracker(PERCLOS_WINDOW_SEC)` line,
         pose_gate.set_baseline(*pose_baseline)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest -v`
 Expected: 27 passed.
@@ -704,7 +704,7 @@ Also verify the module still imports (catches `main()` typos without a webcam):
 Run: `python -c "import drownsy; print('import ok')"`
 Expected: `import ok`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add drownsy.py tests/test_head_pose.py
@@ -720,7 +720,7 @@ git commit -m "feat: capture neutral head-pose baseline during calibration"
 
 No new unit tests: this task is webcam-loop glue around units already tested in Tasks 1–3 (consistent with how the rest of `main()` is covered). Verification = full suite green + clean import; live behavior is checked in Task 6.
 
-- [ ] **Step 1: Compute frame size once per frame**
+- [x] **Step 1: Compute frame size once per frame**
 
 In the `while True:` loop, right after `frame = imutils.resize(frame, width=450)`, add:
 
@@ -728,7 +728,7 @@ In the `while True:` loop, right after `frame = imutils.resize(frame, width=450)
         frame_h, frame_w = frame.shape[:2]
 ```
 
-- [ ] **Step 2: Per-frame pose + gated PERCLOS sampling**
+- [x] **Step 2: Per-frame pose + gated PERCLOS sampling**
 
 Inside the face loop, the code currently reads:
 
@@ -759,7 +759,7 @@ Replace with:
 
 (The replacement re-homes the `# Yawn detection` comment so it sits directly above the `if mar > MOUTH_AR_THRESH:` block that follows.)
 
-- [ ] **Step 3: Slump alert block**
+- [x] **Step 3: Slump alert block**
 
 After the PERCLOS alert block (the one ending with the `threading.Thread(...).start()` that follows `perclos_tracker.clear()`), and before the `# Drowsiness detection` comment, insert:
 
@@ -785,7 +785,7 @@ After the PERCLOS alert block (the one ending with the `threading.Thread(...).st
                 ).start()
 ```
 
-- [ ] **Step 4: Gate the eye-closure path**
+- [x] **Step 4: Gate the eye-closure path**
 
 The eye-closure path currently starts with:
 
@@ -803,7 +803,7 @@ Replace those two lines with:
 
 Leave the body and the `else:` branch untouched — when gated, control now falls into the existing `else`, which resets `closure_start`/`ALARM_ON`. That is exactly the spec behavior.
 
-- [ ] **Step 5: Reset pose state on face loss**
+- [x] **Step 5: Reset pose state on face loss**
 
 After the `for rect in rects:` loop body ends (dedent back to the `while` level, just before `# Show frame` / `cv2.imshow("Frame", frame)`), add:
 
@@ -812,7 +812,7 @@ After the `for rect in rects:` loop body ends (dedent back to the `while` level,
             pose_gate.reset_transient()
 ```
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 Run: `python -m pytest -v`
 Expected: 27 passed.
@@ -834,7 +834,7 @@ git commit -m "feat: gate eye metrics on head pose and add slump alert"
 **Files:**
 - Modify: `drownsy.py` (`main()` display section only)
 
-- [ ] **Step 1: Add the pose line and gate tag**
+- [x] **Step 1: Add the pose line and gate tag**
 
 In the display section of the face loop, after the `cv2.putText(... f"PERCLOS: {perclos:.0%}" ...)` call and before the `cv2.putText(... f"Yawns(60s): ..." ...)` call, insert:
 
@@ -872,7 +872,7 @@ In the display section of the face loop, after the `cv2.putText(... f"PERCLOS: {
 
 (`P`/`Y` are baseline-relative degrees; `R` is the smoothed absolute roll, display-only per the spec. Positions (10, 105)/(10, 130) sit under the existing left-column text — Yawns is at (10, 55), YAWNING at (10, 80).)
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `python -m pytest -v`
 Expected: 27 passed.
@@ -895,7 +895,7 @@ git commit -m "feat: show head pose and gate state on HUD"
 - Modify: `CLAUDE.md` (architecture + roadmap bullets)
 - Modify: `.claude/skills/run-drowsy/SKILL.md` (tunables list)
 
-- [ ] **Step 1: Update CLAUDE.md**
+- [x] **Step 1: Update CLAUDE.md**
 
 Two edits:
 
@@ -915,11 +915,11 @@ Also update the sentence "This is **not yet implemented**" in the same bullet �
 
 **1c.** In the Tunables sentence of the Architecture section, add the new names to the detection list: `POSE_GATE_PITCH_DEG`, `POSE_GATE_YAW_DEG`, `SLUMP_PITCH_DEG`, `SLUMP_ALERT_SEC`, `POSE_EMA_ALPHA`.
 
-- [ ] **Step 2: Update run-drowsy skill tunables**
+- [x] **Step 2: Update run-drowsy skill tunables**
 
 In `.claude/skills/run-drowsy/SKILL.md`, the last paragraph lists key tunables (`CALIB_SECONDS, CALIB_RATIO, EYE_CLOSED_ALERT_SEC, PERCLOS_THRESH, CLAUDE_MODEL, ALERT_COOLDOWN`). Add `POSE_GATE_PITCH_DEG, SLUMP_PITCH_DEG` to that list.
 
-- [ ] **Step 3: Live verification (one run, three checks)**
+- [x] **Step 3: Live verification (one run, three checks)**
 
 Run `python drownsy.py` in the foreground (webcam GUI; quit with `q` in the video window). Sit normally through the 10 s calibration, then:
 
@@ -929,7 +929,40 @@ Run `python drownsy.py` in the foreground (webcam GUI; quit with `q` in the vide
 
 Note pass/fail per check. If a check fails, stop and debug (superpowers:systematic-debugging) before committing.
 
-- [ ] **Step 4: Annotate this plan**
+**Outcome (2026-08-17): all three checks pass.** It took several runs and
+surfaced three defects, all fixed:
+
+1. *Slump alert never fired.* Two causes. `reset_transient()` cleared the
+   slump timer on face loss, and a deep slump takes the face out of dlib's
+   view for ~15 s — so the episode reset every frame and the alert was
+   unreachable. The slump check also lived *inside* the face loop, so it
+   never ran during the blackout. Timer now survives face loss; check moved
+   outside the loop.
+2. *Bogus multi-second eye alerts.* `closure_start` is only cleared in the
+   `else` branch inside the face loop, so a slump-induced blackout left the
+   closure timer running and billed the whole gap as one closure the moment
+   the face returned (observed: "Eyes were closed for about 8 seconds").
+   Pre-existing bug, unreachable until head-pose made the user leave frame.
+   It also consumed `ALERT_COOLDOWN`, blocking the slump alert — one bug,
+   both symptoms. Face loss now resets `closure_start`/`ALARM_ON`.
+3. *Gate jammed on for an entire session.* Calibrating while angled at a
+   second monitor produced a neutral yaw of −31.7° (vs −2.4° facing square),
+   leaving the yaw arm engaged permanently and silently disabling all eye
+   detection. Not a code fix — documented in CLAUDE.md.
+
+Observed angles: neutral pitch varies −0.9 to +17.8 between runs; a
+deliberate look-down tracks at rel_pitch +9 to +15; beyond that the face is
+lost rather than reading higher. A single +32.7 sample was an outlier.
+`SLUMP_PITCH_DEG` was accordingly set to 10 (not the 20–25 originally
+guessed) so the episode starts while the face is still trackable, with
+`SLUMP_ALERT_SEC` raised to 4 to separate a glance from a slump. Final run:
+5 slump alerts across both the visible-pitch and face-lost paths, eye and
+PERCLOS alerts firing normally, no false eye alerts.
+
+Gap: the eye-closure reset on face loss lives inline in `main()` and has no
+unit test, unlike `PoseGate`.
+
+- [x] **Step 4: Annotate this plan**
 
 Tick all checkboxes; note the live-verification outcome under Task 6 (which checks passed, observed angles).
 

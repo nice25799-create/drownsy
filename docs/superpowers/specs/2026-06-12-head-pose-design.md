@@ -94,8 +94,10 @@ tunable.)
      episode, at the moment relative pitch-down has continuously exceeded
      `SLUMP_PITCH_DEG` for ≥ `SLUMP_ALERT_SEC`. The episode (and its
      fired flag) resets when pitch recovers below `SLUMP_PITCH_DEG`.
-   - `reset_transient()` — clears EMA state and slump timer (called on
-     face loss). Baseline is kept.
+   - `reset_transient()` — clears EMA state and drops the gate (called on
+     face loss). Baseline **and any live slump episode** are kept: a deep
+     slump takes the face out of dlib's view entirely, so an episode
+     already under way must keep accruing or the alert can never fire.
    - **Lazy baseline fallback:** if calibration produced no usable pose
      baseline, `PoseGate` collects the first 60 valid pose frames during
      detection and uses their median. Gate and slump are inactive until a
@@ -106,20 +108,32 @@ tunable.)
    the medians become the neutral baseline. No change to EAR threshold
    derivation.
 
-4. **Main-loop integration (per frame, inside the face loop):**
+4. **Main-loop integration (per frame):**
 
    ```
+   inside the face loop:
    landmarks → EAR/MAR (unchanged)
             → estimate_head_pose → PoseGate.update (EMA, baseline-relative)
             → gated?  ──yes──> reset eye-closure state (closure_start=None,
                                ALARM_ON=False), skip PERCLOS sample
                       ──no───> eye-closure + PERCLOS paths run as today
+
+   outside the face loop (must run even with no face):
+   face lost → reset eye-closure state, PoseGate.reset_transient()
             → PoseGate.slump_alert_due(now)?
                       → [TRIGGER slump] + handle_alert (existing pipeline:
                         alert_busy, ALERT_COOLDOWN, Claude message, TTS)
    ```
 
-   Face lost → `PoseGate.reset_transient()`; gate off while no face.
+   The slump check sits **outside** the face loop because a deep slump
+   removes the face from view, and the alert still has to fire. The
+   busy/cooldown guards are evaluated *before* `slump_alert_due()`, since
+   that call consumes the episode's single shot.
+
+   Face loss must also clear `closure_start`/`ALARM_ON`. Those are only
+   reset in the `else` branch inside the face loop, so without this a
+   slump-induced blackout leaves the eye-closure timer running and bills
+   the whole gap as one long closure the moment the face returns.
 
 5. **HUD:** one added line, e.g. `P +12  Y -3  R +1`, plus a `POSE GATE`
    tag while gated. Slump alert uses the existing alert banner.
@@ -136,7 +150,9 @@ tunable.)
 - **No baseline from calibration** → lazy baseline (above); eye detection
   unaffected meanwhile.
 - **Face lost** → `reset_transient()` so a fresh detection doesn't inherit
-  stale smoothed angles or a stale slump timer.
+  stale smoothed angles, plus an explicit eye-closure reset. A live slump
+  episode deliberately survives, since face loss *is* the dominant symptom
+  of a deep slump.
 - **Alert spam** → one slump alert per episode + existing `alert_busy` and
   `ALERT_COOLDOWN` guards.
 

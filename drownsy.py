@@ -20,6 +20,8 @@ except ImportError:
     _TTS_AVAILABLE = False
 
 # -------------------- CONFIGURATION --------------------
+FRAME_WIDTH = 800             # width (px) of the webcam preview window (bigger = larger pop-up)
+
 EYE_CLOSED_ALERT_SEC = 1.0    # continuous eye closure that fires the alert
 
 MOUTH_AR_THRESH = 0.5         # MAR above this → mouth wide open (yawning)
@@ -40,9 +42,10 @@ YAWN_ALERT_COUNT = 3          # yawns within the window to trigger an alert
 
 POSE_GATE_PITCH_DEG = 10.0    # look down past this (vs neutral) -> gate eye metrics
 POSE_GATE_YAW_DEG = 15.0      # turn past this (either way) -> gate eye metrics
-SLUMP_PITCH_DEG = 25.0        # pitch-down past this = possible head slump
-SLUMP_ALERT_SEC = 2.0         # slump sustained this long -> alert
-POSE_EMA_ALPHA = 0.3          # EMA smoothing factor for head-pose angles
+POSE_GATE_HYSTERESIS_DEG = 3.0  # once gated, hold until this far back under
+SLUMP_PITCH_DEG = 10.0        # pitch-down past this = possible head slump
+SLUMP_ALERT_SEC = 4.0         # slump sustained this long -> alert
+POSE_EMA_ALPHA = 0.15         # EMA smoothing factor for head-pose angles
 
 CLAUDE_MODEL = "claude-opus-4-7"  # swap to "claude-haiku-4-5" for faster/cheaper alerts
 ALERT_COOLDOWN = 6.0              # min seconds between spoken alerts
@@ -188,13 +191,15 @@ class PoseGate:
     """
 
     def __init__(self, gate_pitch_deg, gate_yaw_deg, slump_pitch_deg,
-                 slump_alert_sec, ema_alpha, lazy_baseline_frames=60):
+                 slump_alert_sec, ema_alpha, lazy_baseline_frames=60,
+                 gate_hysteresis_deg=0.0):
         self.gate_pitch_deg = gate_pitch_deg
         self.gate_yaw_deg = gate_yaw_deg
         self.slump_pitch_deg = slump_pitch_deg
         self.slump_alert_sec = slump_alert_sec
         self.ema_alpha = ema_alpha
         self.lazy_baseline_frames = lazy_baseline_frames
+        self.gate_hysteresis_deg = gate_hysteresis_deg
 
         self.baseline = None      # (pitch, yaw) neutral, once known
         self.pitch = None         # EMA-smoothed absolute angles
@@ -205,6 +210,7 @@ class PoseGate:
         self._lazy_samples = []
         self._slump_start = None
         self._slump_alerted = False
+        self._gated = False
 
     def set_baseline(self, pitch, yaw):
         self.baseline = (pitch, yaw)
@@ -215,6 +221,7 @@ class PoseGate:
             self.rel_yaw = None
             self._slump_start = None
             self._slump_alerted = False
+            self._gated = False
             return
 
         pitch, yaw, roll = pose
@@ -242,6 +249,13 @@ class PoseGate:
         self.rel_pitch = self.pitch - self.baseline[0]
         self.rel_yaw = self.yaw - self.baseline[1]
 
+        # Hysteresis: once gated, hold on until the angle falls a margin
+        # below the threshold, so a jittery pose estimate can't chatter.
+        margin = self.gate_hysteresis_deg if self._gated else 0.0
+
+        self._gated = (self.rel_pitch > self.gate_pitch_deg - margin
+                       or abs(self.rel_yaw) > self.gate_yaw_deg - margin)
+
         if self.rel_pitch > self.slump_pitch_deg:
             if self._slump_start is None:
                 self._slump_start = now
@@ -250,11 +264,7 @@ class PoseGate:
             self._slump_alerted = False
 
     def is_gated(self):
-        if self.rel_pitch is None:
-            return False
-
-        return (self.rel_pitch > self.gate_pitch_deg
-                or abs(self.rel_yaw) > self.gate_yaw_deg)
+        return self._gated
 
     def slump_elapsed(self, now):
         if self._slump_start is None:
@@ -274,13 +284,16 @@ class PoseGate:
         return False
 
     def reset_transient(self):
-        """On face loss: drop smoothing + slump state, keep the baseline."""
-        # _lazy_samples deliberately survives face loss: baseline collection
-        # resumes where it left off when the face comes back.
+        """On face loss: drop smoothing, keep the baseline and any live slump.
+
+        A slumping head leaves dlib's frontal detector entirely (measured:
+        ~15 s of unbroken face loss), so an episode already under way must
+        keep accruing or the alert can never fire. _lazy_samples likewise
+        survives, resuming baseline collection when the face returns.
+        """
         self.pitch = self.yaw = self.roll = None
         self.rel_pitch = self.rel_yaw = None
-        self._slump_start = None
-        self._slump_alerted = False
+        self._gated = False
 
 
 def calibrate_ear(vs, detector, predictor, l_idx, r_idx):
@@ -309,7 +322,7 @@ def calibrate_ear(vs, detector, predictor, l_idx, r_idx):
             print("[ERROR] Failed to read frame during calibration.")
             break
 
-        frame = imutils.resize(frame, width=450)
+        frame = imutils.resize(frame, width=FRAME_WIDTH)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         rects = detector(gray, 0)
 
@@ -484,6 +497,7 @@ def main():
         SLUMP_PITCH_DEG,
         SLUMP_ALERT_SEC,
         POSE_EMA_ALPHA,
+        gate_hysteresis_deg=POSE_GATE_HYSTERESIS_DEG,
     )
 
     if pose_baseline is not None:
@@ -496,8 +510,9 @@ def main():
             print("[ERROR] Failed to read frame from webcam.")
             break
 
-        # Resize for speed
-        frame = imutils.resize(frame, width=450)
+        # Resize for the preview window (FRAME_WIDTH controls the pop-up size)
+        frame = imutils.resize(frame, width=FRAME_WIDTH)
+        frame_h, frame_w = frame.shape[:2]
 
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -540,6 +555,10 @@ def main():
                 1
             )
 
+            # Dots on each tracked eye landmark
+            for (x, y) in np.vstack((leftEye, rightEye)):
+                cv2.circle(frame, (int(x), int(y)), 2, (0, 0, 255), -1)
+
             # Extract inner-lip coordinates and compute MAR
             mouth = shape[mStart:mEnd]
             mar = mouth_aspect_ratio(mouth)
@@ -554,11 +573,23 @@ def main():
                 1
             )
 
-            # Yawn detection: mouth wide open for enough consecutive time
+            # Dots on each tracked inner-lip landmark
+            for (x, y) in mouth:
+                cv2.circle(frame, (int(x), int(y)), 2, (0, 0, 255), -1)
+
             now = time.time()
-            perclos_tracker.update(ear < ear_thresh, now)
+
+            # Head pose: gate the eye metrics while looking away/down
+            pose = estimate_head_pose(shape, frame_w, frame_h)
+            pose_gate.update(pose, now)
+            gated = pose_gate.is_gated()
+
+            if not gated:
+                perclos_tracker.update(ear < ear_thresh, now)
+
             perclos = perclos_tracker.value()
 
+            # Yawn detection: mouth wide open for enough consecutive time
             if mar > MOUTH_AR_THRESH:
                 if mouth_open_start is None:
                     mouth_open_start = now
@@ -624,8 +655,8 @@ def main():
                     daemon=True,
                 ).start()
 
-            # Drowsiness detection
-            if ear < ear_thresh:
+            # Drowsiness detection (paused while the pose gate is active)
+            if ear < ear_thresh and not gated:
                 if closure_start is None:
                     closure_start = now   # episode begins
 
@@ -704,6 +735,36 @@ def main():
                 2
             )
 
+            if pose_gate.rel_pitch is not None:
+                pose_text = (f"P {pose_gate.rel_pitch:+.0f}  "
+                             f"Y {pose_gate.rel_yaw:+.0f}  "
+                             f"R {pose_gate.roll:+.0f}")
+            else:
+                pose_text = "P --  Y --  R --"
+
+            pose_color = (0, 165, 255) if gated else (255, 255, 255)
+
+            cv2.putText(
+                frame,
+                pose_text,
+                (10, 105),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.55,
+                pose_color,
+                2
+            )
+
+            if gated:
+                cv2.putText(
+                    frame,
+                    "POSE GATE",
+                    (10, 130),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 165, 255),
+                    2
+                )
+
             cv2.putText(
                 frame,
                 f"Yawns(60s): {len(yawn_times)}",
@@ -716,10 +777,37 @@ def main():
 
         if not rects:
             # No face means no eye evidence, so the closure episode has to end.
-            # Leaving it running billed the whole no-face gap as one long
-            # closure the moment the face reappeared.
+            # Leaving it running let a head-down slump (which takes the face out
+            # of view) surface later as a bogus multi-second "eyes closed" alert
+            # the moment the face reappeared.
             closure_start = None
             ALARM_ON = False
+
+            pose_gate.reset_transient()
+
+        # Head slumped far down for long enough -> spoken alert. Lives outside
+        # the face loop because a deep slump takes the face out of dlib's view
+        # entirely, and the alert still has to fire. Busy/cooldown checks come
+        # FIRST: slump_alert_due() consumes the episode's single shot.
+        now = time.time()
+
+        if (not alert_busy.is_set()
+                and (now - last_alert_time) > ALERT_COOLDOWN
+                and pose_gate.slump_alert_due(now)):
+            last_alert_time = now
+            episode_count += 1
+            reason = (f"Driver's head slumped forward for about "
+                      f"{pose_gate.slump_elapsed(now):.0f} seconds.")
+            pitch_note = ("face lost" if pose_gate.rel_pitch is None
+                          else f"pitch {pose_gate.rel_pitch:+.0f} deg")
+            print(f"[TRIGGER slump] {reason} ({pitch_note})", flush=True)
+
+            alert_busy.set()
+            threading.Thread(
+                target=handle_alert,
+                args=(client, episode_count, reason, alert_busy),
+                daemon=True,
+            ).start()
 
         # Show frame
         cv2.imshow("Frame", frame)

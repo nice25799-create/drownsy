@@ -238,12 +238,55 @@ def test_reset_transient_keeps_baseline():
     g.reset_transient()                       # face lost
 
     assert g.baseline == (0.0, 0.0)
-    assert g.is_gated() is False
-    assert g.slump_alert_due(10.0) is False
+    assert g.is_gated() is False              # no pose -> nothing to gate on
+    assert g.rel_pitch is None
 
-    g.update((30.0, 0.0, 0.0), 11.0)          # face back: fresh episode
+
+def test_slump_survives_face_loss():
+    """dlib drops the face during a deep slump, so the timer must keep running.
+
+    Live capture showed ~15 s of unbroken face loss while slumped, which reset
+    the episode every frame and made the alert unreachable in practice.
+    """
+    g = make_gate()
+    g.set_baseline(0.0, 0.0)
+    g.update((30.0, 0.0, 0.0), 0.0)           # slump episode begins
+
+    g.reset_transient()                       # face disappears mid-slump
+
+    assert g.slump_alert_due(2.5) is True
+
+
+def test_face_loss_while_upright_never_slumps():
+    g = make_gate()
+    g.set_baseline(0.0, 0.0)
+    g.update((0.0, 0.0, 0.0), 0.0)            # sitting normally
+
+    g.reset_transient()                       # user simply walked away
+
+    assert g.slump_alert_due(600.0) is False
+
+
+def test_gate_hysteresis_holds_until_margin_cleared():
+    g = make_gate(gate_hysteresis_deg=3.0)
+    g.set_baseline(0.0, 0.0)
+
+    g.update((11.0, 0.0, 0.0), 0.0)   # past 10 -> engages
     assert g.is_gated() is True
-    assert g.slump_alert_due(13.0) is True
+
+    g.update((8.5, 0.0, 0.0), 1.0)    # under 10 but above 10-3 -> holds
+    assert g.is_gated() is True
+
+    g.update((6.0, 0.0, 0.0), 2.0)    # under 10-3 -> releases
+    assert g.is_gated() is False
+
+
+def test_gate_hysteresis_needs_full_threshold_to_engage():
+    g = make_gate(gate_hysteresis_deg=3.0)
+    g.set_baseline(0.0, 0.0)
+
+    g.update((8.5, 0.0, 0.0), 0.0)    # inside the margin but never engaged
+    assert g.is_gated() is False
 
 
 # ---------- derive_pose_baseline ----------
