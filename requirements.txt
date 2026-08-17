@@ -1,0 +1,24 @@
+# Install with:  pip install -r requirements.txt
+#
+# dlib note: plain `dlib` builds from source and needs CMake + Visual Studio
+# Build Tools on Windows. `dlib-bin` is the same library shipped as a prebuilt
+# wheel, so it installs in seconds with no compiler. Swap it for `dlib` only
+# if you actually need to build from source.
+#
+# This resolves to dlib-bin 20.x, while the app was developed and tested
+# against dlib 19.24.1. Only the long-stable API is used
+# (get_frontal_face_detector, shape_predictor), so 20.x is expected to work.
+# If face detection misbehaves, `pip install dlib-bin==19.24.6` to match.
+
+opencv-python>=4.8
+dlib-bin>=19.24
+imutils>=0.5.4
+scipy>=1.11
+numpy>=1.26,<2.0
+anthropic>=0.40
+
+# Optional: spoken alerts. Without it, alerts print to the console instead.
+pyttsx3>=2.90
+
+# Dev only: the test suite needs no webcam and no network.
+pytest>=8.0
